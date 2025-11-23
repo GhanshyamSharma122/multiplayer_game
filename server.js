@@ -16,6 +16,7 @@ const TANK_SIZE = 40;
 const BULLET_SPEED = 10;
 const TANK_SPEED = 4.2;
 const BULLET_RADIUS = 5;
+const BULLET_LIFETIME = 100; // Frames
 
 io.on('connection', (socket) => {
     console.log('a user connected: ' + socket.id);
@@ -32,32 +33,15 @@ io.on('connection', (socket) => {
             score: 0,
             name: name || "Player " + socket.id.substr(0, 4),
             id: socket.id,
-            color: `hsl(${Math.random() * 360}, 100%, 50%)`
+            color: `hsl(${Math.random() * 360}, 100%, 50%)`,
+            input: { up: false, down: false, left: false, right: false }
         };
     });
 
     socket.on('movement', (data) => {
         const player = players[socket.id];
-        if (player && player.health > 0) {
-            // Simple movement logic - authoritative
-            if (data.up) {
-                player.x += Math.cos(player.rotation) * TANK_SPEED;
-                player.y += Math.sin(player.rotation) * TANK_SPEED;
-            }
-            if (data.down) {
-                player.x -= Math.cos(player.rotation) * TANK_SPEED;
-                player.y -= Math.sin(player.rotation) * TANK_SPEED;
-            }
-            if (data.left) {
-                player.rotation -= 0.05;
-            }
-            if (data.right) {
-                player.rotation += 0.05;
-            }
-
-            // Boundary checks
-            player.x = Math.max(TANK_SIZE / 2, Math.min(MAP_WIDTH - TANK_SIZE / 2, player.x));
-            player.y = Math.max(TANK_SIZE / 2, Math.min(MAP_HEIGHT - TANK_SIZE / 2, player.y));
+        if (player) {
+            player.input = data;
         }
     });
 
@@ -69,7 +53,8 @@ io.on('connection', (socket) => {
                 y: player.y + Math.sin(player.rotation) * (TANK_SIZE / 2 + 10),
                 vx: Math.cos(player.rotation) * BULLET_SPEED,
                 vy: Math.sin(player.rotation) * BULLET_SPEED,
-                ownerId: socket.id
+                ownerId: socket.id,
+                life: BULLET_LIFETIME
             });
         }
     });
@@ -82,14 +67,40 @@ io.on('connection', (socket) => {
 
 // Game Loop (60 TPS)
 setInterval(() => {
+    // Update players
+    for (const id in players) {
+        const player = players[id];
+        if (player.health > 0) {
+            if (player.input.up) {
+                player.x += Math.cos(player.rotation) * TANK_SPEED;
+                player.y += Math.sin(player.rotation) * TANK_SPEED;
+            }
+            if (player.input.down) {
+                player.x -= Math.cos(player.rotation) * TANK_SPEED;
+                player.y -= Math.sin(player.rotation) * TANK_SPEED;
+            }
+            if (player.input.left) {
+                player.rotation -= 0.05;
+            }
+            if (player.input.right) {
+                player.rotation += 0.05;
+            }
+
+            // Boundary checks
+            player.x = Math.max(TANK_SIZE / 2, Math.min(MAP_WIDTH - TANK_SIZE / 2, player.x));
+            player.y = Math.max(TANK_SIZE / 2, Math.min(MAP_HEIGHT - TANK_SIZE / 2, player.y));
+        }
+    }
+
     // Update bullets
     for (let i = bullets.length - 1; i >= 0; i--) {
         const b = bullets[i];
         b.x += b.vx;
         b.y += b.vy;
+        b.life--;
 
-        // Remove if out of bounds
-        if (b.x < 0 || b.x > MAP_WIDTH || b.y < 0 || b.y > MAP_HEIGHT) {
+        // Remove if expired
+        if (b.life <= 0) {
             bullets.splice(i, 1);
             continue;
         }
@@ -117,6 +128,7 @@ setInterval(() => {
                                 players[id].health = 100;
                                 players[id].x = Math.random() * MAP_WIDTH;
                                 players[id].y = Math.random() * MAP_HEIGHT;
+                                players[id].input = { up: false, down: false, left: false, right: false };
                             }
                         }, 3000);
 
